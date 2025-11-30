@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CynIous 3d - v0.6.0</title>
+    
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Load three.js (Core 3D library) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- 3. Load OrbitControls (for mouse control) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- 4. Load TransformControls (for the move/rotate/scale gizmos) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    
+    <style>
+        /* Custom dark theme and layout styles */
+        body, html {
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+            background-color: #333;
+        }
+        
+        :root { --bg-dark-1: #2b2b2b; --bg-dark-2: #3a3a3a; --bg-dark-3: #4a4a4a; --border-dark: #202020; --text-light: #d4d4d4; --text-dark: #a0a0a0; --accent: #4a90e2; }
+
+        .tool-btn { @apply w-12 h-12 flex items-center justify-center text-gray-400 rounded-md transition-all duration-150; }
+        .tool-btn:hover { @apply bg-gray-600 text-white; }
+        .tool-btn.active { @apply bg-blue-600 text-white shadow-inner; }
+        
+        .btn-secondary { @apply px-2 py-1 bg-gray-600 text-gray-300 rounded-md text-xs hover:bg-gray-500 transition-all; }
+        .btn-secondary:disabled { @apply bg-gray-700 text-gray-500 cursor-not-allowed; }
+        
+        .timeline-btn { @apply w-6 h-6 flex items-center justify-center bg-gray-600 text-gray-300 rounded-md hover:bg-blue-600 hover:text-white; }
+        .timeline-btn-wide { @apply px-2 h-6 flex items-center justify-center bg-red-600 text-white rounded-md text-xs font-bold hover:bg-red-500; }
+        .timeline-btn-wide:disabled { @apply bg-gray-700 text-gray-500 cursor-not-allowed; }
+
+        .panel-header { @apply text-xs font-semibold uppercase text-gray-300 bg-gray-700 p-2 border-b border-gray-900 rounded-t-md cursor-pointer flex justify-between items-center; }
+        
+        .outliner-item { @apply text-sm text-gray-300 p-1.5 pl-4 rounded-md cursor-pointer hover:bg-blue-600 hover:text-white flex items-center space-x-2; }
+        .outliner-item.selected { @apply bg-blue-600 text-white; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark-1); }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #666; }
+        
+        #viewport-container { width: 100%; height: 100%; display: block; }
+        
+        .prop-input { @apply w-full bg-gray-800 border border-gray-900 rounded-md px-2 py-1 text-white text-right disabled:bg-gray-700 disabled:text-gray-500; }
+        .prop-input-text { @apply w-full bg-gray-800 border border-gray-900 rounded-md px-2 py-1 text-white text-left disabled:bg-gray-700 disabled:text-gray-500; }
+        .prop-label { @apply text-sm text-gray-400; }
+        .prop-slider { @apply w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer; }
+        
+        .dropdown { @apply relative; }
+        .dropdown-btn { @apply text-gray-300 hover:text-white; }
+        .dropdown-menu { @apply hidden absolute left-0 mt-1 w-48 bg-gray-800 border border-gray-900 rounded-md shadow-lg z-50; }
+        .dropdown-item { @apply block px-4 py-2 text-sm text-gray-300 hover:bg-blue-600 hover:text-white cursor-pointer; }
+        .dropdown-divider { @apply border-t border-gray-700 my-1; }
+        .dropdown-header { @apply block px-4 py-2 text-xs text-gray-500; }
+        
+        #file-open-input { @apply hidden; }
+
+        #camera-controls { @apply absolute top-2 right-2 z-10 p-2 bg-gray-900 bg-opacity-70 rounded-md shadow-lg flex flex-col space-y-2; }
+        .camera-btn { @apply px-2 py-1 bg-gray-700 text-gray-300 rounded-md text-xs font-medium hover:bg-blue-600 hover:text-white transition-all; }
+        
+        /* Timeline slider */
+        #frame-slider { @apply w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer; }
+    </style>
+</head>
+<body class="bg-gray-800 text-gray-200 flex flex-col h-screen">
+
+    <!-- 1. Top Menu Bar -->
+    <header class="flex-shrink-0 bg-gray-900 shadow-md h-8 flex items-center px-4 z-10 border-b border-black">
+        <span class="text-lg font-bold text-white mr-4">CynIous 3d</span>
+        <nav class="flex space-x-4 text-sm items-center w-full">
+            
+            <div class="dropdown">
+                <a href="#" class="dropdown-btn" data-dropdown-btn="file-menu">File</a>
+                <div id="file-menu" class="dropdown-menu">
+                    <a class="dropdown-item" id="file-save-btn">Save Scene (.json)</a>
+                    <a class="dropdown-item" id="file-open-btn">Open Scene (.json)</a>
+                    <input type="file" id="file-open-input" accept=".json">
+                </div>
+            </div>
+            
+            <a href="#" class="dropdown-btn">Edit</a>
+            <a href="#" class="dropdown-btn">Render</a>
+            
+            <div class="dropdown">
+                <a href="#" class="dropdown-btn" data-dropdown-btn="add-menu">Add</a>
+                <div id="add-menu" class="dropdown-menu">
+                    <span class="dropdown-header">Mesh</span>
+                    <a class="dropdown-item add-object-btn" data-type="Cube">Cube</a>
+                    <a class="dropdown-item add-object-btn" data-type="Sphere">Sphere</a>
+                    <a class="dropdown-item add-object-btn" data-type="Plane">Plane</a>
+                    <a class="dropdown-item add-object-btn" data-type="Cylinder">Cylinder</a>
+                    <a class="dropdown-item add-object-btn" data-type="Cone">Cone</a>
+                    <a class="dropdown-item add-object-btn" data-type="Torus">Torus</a>
+                    <div class="dropdown-divider"></div>
+                    <span class="dropdown-header">Light</span>
+                    <a class="dropdown-item add-object-btn" data-type="PointLight">Point Light</a>
+                    <a class="dropdown-item add-object-btn" data-type="SpotLight">Spot Light</a>
+                </div>
+            </div>
+            
+            <a href="#" class="dropdown-btn">Window</a>
+            <a href="#" class="dropdown-btn">Help</a>
+            
+            <div class="flex-grow"></div>
+            <button id="toggle-wireframe-btn" class="ml-8 text-xs bg-gray-700 px-2 py-0.5 rounded-md text-gray-300 hover:bg-gray-600">
+                Wireframe: OFF
+            </button>
+        </nav>
+    </header>
+
+    <!-- 2. Main Content Area -->
+    <div class="flex-grow flex overflow-hidden">
+
+        <!-- 2.1. Left Toolbar -->
+        <aside class="flex-shrink-0 w-16 bg-gray-800 p-2 flex flex-col items-center space-y-2 border-r border-gray-900">
+            <button class="tool-btn active" data-tool="select" title="Select">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path><path d="M13 13l6 6"></path></svg>
+            </button>
+            <button class="tool-btn" data-tool="translate" title="Move">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9l-3 3 3 3"></path><path d="M9 5l3-3 3 3"></path><path d="M15 19l-3 3-3-3"></path><path d="M19 9l3 3-3 3"></path><path d="M2 12h20"></path><path d="M12 2v20"></path></svg>
+            </button>
+            <button class="tool-btn" data-tool="rotate" title="Rotate">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12c0-4.97-4.03-9-9-9S3 7.03 3 12s4.03 9 9 9"></path><path d="M21 12h-4"></path><path d="M3 12h4"></path><path d="M12 3v4"></path><path d="M12 17v4"></path><path d="M16.2 7.8c3.2 1.2 5.8 4.8 5.8 8.2"></path></svg>
+            </button>
+            <button class="tool-btn" data-tool="scale" title="Scale">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3L3 21"></path><path d="M3 3v6h6"></path><path d="M21 21v-6h-6"></path></svg>
+            </button>
+        </aside>
+
+        <!-- 2.2. Center Panel (Viewport + Timeline) -->
+        <!-- **** FIX: Added min-w-0 to prevent flexbox shrinking issue **** -->
+        <main class="flex-grow flex flex-col bg-gray-700 min-w-0">
+            <!-- 2.2.1. 3D Viewport -->
+            <div id="viewport-container" class="flex-grow relative bg-black cursor-crosshair">
+                <!-- The 3D canvas will be inserted here by three.js -->
+                
+                <div id="camera-controls">
+                    <button id="cam-toggle-ortho" class="camera-btn">Persp</button>
+                    <div class="grid grid-cols-2 gap-1">
+                        <button id="cam-snap-front" class="camera-btn">Front</button>
+                        <button id="cam-snap-top" class="camera-btn">Top</button>
+                        <button id="cam-snap-side" class="camera-btn">Side</button>
+                        <button id="cam-snap-reset" class="camera-btn">Reset</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 2.2.2. Timeline -->
+            <div class="flex-shrink-0 h-32 bg-gray-800 border-t-2 border-gray-900 p-2 flex flex-col">
+                <div class="flex items-center space-x-2 mb-2">
+                    <button id="timeline-stop" class="timeline-btn" title="Go to Frame 0">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M0 12V4h2v8H0zm3 0V4h9l-4.5 4L12 12H3z"/></svg>
+                    </button>
+                    <button id="timeline-play" class="timeline-btn" title="Play/Pause">
+                        <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/></svg>
+                        <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="hidden"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5zm5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5z"/></svg>
+                    </button>
+                    <input type="number" id="frame-input" class="prop-input w-20 text-sm" value="0" min="0" max="300">
+                    <button id="set-keyframe" class="timeline-btn-wide" disabled>Set KF</button>
+                </div>
+                <div class="flex-grow flex items-center">
+                    <input type="range" id="frame-slider" min="0" max="300" value="0" class="w-full">
+                </div>
+                <!-- Mock timeline keyframe area -->
+                <div class="w-full h-16 bg-gray-700 rounded-md mt-2 border border-gray-900 overflow-hidden">
+                    <div id="keyframe-track-ui" class="relative h-full">
+                        <!-- Keyframes will be added here by JS -->
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 2.3. Right Properties Panel -->
+        <aside class="flex-shrink-0 w-64 bg-gray-800 border-l border-gray-900 overflow-y-auto">
+            <!-- Panel Content -->
+            <div class="p-2 space-y-2">
+                
+                <!-- Outliner Panel -->
+                <div class="bg-gray-700/50 rounded-md">
+                    <div class="flex justify-between items-center p-1 border-b border-gray-900">
+                        <button id="parent-btn" class="btn-secondary" disabled>Set Parent</button>
+                        <button id="unparent-btn" class="btn-secondary" disabled>Unparent</button>
+                    </div>
+                    <div class="flex items-center justify-center hidden" id="parent-wait-msg">
+                        <span class="text-xs text-yellow-400 p-1">Click new parent...</span>
+                    </div>
+                    <h3 class="panel-header" data-panel="outliner">
+                        <span>Outliner</span>
+                        <span>&#9662;</span> <!-- Down Arrow -->
+                    </h3>
+                    <div id="panel-body-outliner" class="p-2 space-y-1 max-h-64 overflow-y-auto">
+                        <!-- Items will be added here by JS -->
+                    </div>
+                </div>
+
+                <!-- Properties Panel -->
+                <div class="bg-gray-700/50 rounded-md">
+                    <h3 class="panel-header" data-panel="properties">
+                        <span>Properties</span>
+                        <span>&#9662;</span>
+                    </h3>
+                    <div id="panel-body-properties" class="p-2 space-y-3">
+                        <!-- JS will add all properties here -->
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+    </div>
+
+    <!-- 3. Status Bar -->
+    <footer class="flex-shrink-0 bg-gray-900 h-6 px-4 flex items-center justify-between text-xs text-gray-400 border-t border-black">
+        <!-- **** FIX: Updated version number **** -->
+        <div id="status-version">CynIous 3d v0.6.0</div>
+        <div class="flex space-x-4" id="status-stats">
+            <!-- Stats will be updated by JS -->
+            <span>Verts: 0</span>
+            <span>Tris: 0</span>
+            <span>Objects: 0</span>
+        </div>
+    </footer>
+
+
+    <script type="module">
+        // =================================================================
+        // 0. CHECK DEPENDENCIES
+        // =================================================================
+        if (typeof THREE === 'undefined') console.error('THREE.js failed to load.');
+        if (typeof THREE.OrbitControls === 'undefined') console.error('OrbitControls.js failed to load.');
+        if (typeof THREE.TransformControls === 'undefined') console.error('TransformControls.js failed to load.');
+
+        // =================================================================
+        // 1. GLOBAL STATE & SETUP
+        // =================================================================
+        
+        const FPS = 30;
+        const MAX_FRAMES = 300; // 10 seconds
+        
+        const global = {
+            scene: null,
+            camera: null,
+            cameraOrtho: null,
+            cameraHelpers: null,
+            isOrtho: false,
+            renderer: null,
+            orbitControls: null,
+            transformControls: null,
+            raycaster: new THREE.Raycaster(),
+            mouse: new THREE.Vector2(),
+            textureLoader: new THREE.TextureLoader(),
+            selectedObject: null,
+            isWireframe: false,
+            waitingForParent: false,
+            selectableObjects: [], // Meshes
+            helperObjects: [], // Light helpers
+            
+            clock: new THREE.Clock(),
+            mixer: null,
+            animationActions: new Map(), // Map<THREE.Object3D, THREE.AnimationAction>
+            isPlaying: false,
+            currentFrame: 0,
+        };
+
+        const viewportContainer = document.getElementById('viewport-container');
+        const propertiesPanel = document.getElementById('panel-body-properties');
+        
+        const playBtn = document.getElementById('timeline-play');
+        const playIcon = document.getElementById('play-icon');
+        const pauseIcon = document.getElementById('pause-icon');
+        const stopBtn = document.getElementById('timeline-stop');
+        const frameInput = document.getElementById('frame-input');
+        const frameSlider = document.getElementById('frame-slider');
+        const setKeyframeBtn = document.getElementById('set-keyframe');
+        const keyframeTrackUI = document.getElementById('keyframe-track-ui');
+
+        // =================================================================
+        // 2. CORE THREE.JS INITIALIZATION
+        // =================================================================
+        function init() {
+            // 2.1. Scene
+            global.scene = new THREE.Scene();
+            global.scene.name = "CynIous Scene";
+            global.scene.background = new THREE.Color(0x2a2a2a);
+            
+            // 2.2. Cameras
+            const aspect = viewportContainer.clientWidth / viewportContainer.clientHeight;
+            global.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+            global.camera.position.set(5, 5, 5);
+            global.camera.lookAt(0, 0, 0);
+            global.camera.name = "DefaultCamera";
+            
+            const frustumSize = 10;
+            global.cameraOrtho = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
+            global.cameraOrtho.position.set(5, 5, 5);
+            global.cameraOrtho.lookAt(0, 0, 0);
+            global.cameraOrtho.name = "OrthoCamera";
+            
+            global.cameraHelpers = new THREE.Scene();
+
+            // 2.3. Renderer
+            global.renderer = new THREE.WebGLRenderer({ antialias: true });
+            global.renderer.setSize(viewportContainer.clientWidth, viewportContainer.clientHeight);
+            global.renderer.setPixelRatio(window.devicePixelRatio);
+            global.renderer.domElement.id = 'viewport-canvas';
+            global.renderer.autoClear = false;
+            viewportContainer.appendChild(global.renderer.domElement);
+
+            // 2.4. Controls (Orbit)
+            global.orbitControls = new THREE.OrbitControls(global.camera, global.renderer.domElement);
+            global.orbitControls.enableDamping = true;
+            global.orbitControls.dampingFactor = 0.05;
+
+            // 2.5. Controls (Transform Gizmo)
+            global.transformControls = new THREE.TransformControls(global.camera, global.renderer.domElement);
+            global.scene.add(global.transformControls);
+            
+            frameSlider.addEventListener('pointerdown', () => global.orbitControls.enabled = false);
+            frameSlider.addEventListener('pointerup', () => global.orbitControls.enabled = true);
+
+            // 2.6. Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            ambientLight.name = "AmbientLight";
+            global.scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            directionalLight.name = "DirectionalLight";
+            global.scene.add(directionalLight);
+            
+            // 2.7. Animation Mixer
+            global.mixer = new THREE.AnimationMixer(global.scene);
+
+            // 2.8. Initial Objects
+            const gridHelper = new THREE.GridHelper(10, 10, 0x555555, 0x333333);
+            gridHelper.name = "GridHelper";
+            global.scene.add(gridHelper);
+            addObject('Cube', new THREE.Vector3(0, 0.5, 0));
+            addObject('Sphere', new THREE.Vector3(-2, 0.5, 0));
+            
+            // 2.9. Initialize UI
+            initUI();
+
+            // 2.10. Start Animation Loop
+            animate();
+        }
+
+        // =================================================================
+        // 3. UI EVENT LISTENERS
+        // =================================================================
+        function initUI() {
+            window.addEventListener('resize', onWindowResize, false);
+            viewportContainer.addEventListener('pointerdown', onPointerDown, false);
+
+            window.addEventListener('keydown', (event) => {
+                if (event.target.tagName.toLowerCase() === 'input') return;
+                if (event.key === 'Delete' || event.key === 'Backspace') {
+                    deleteObject(global.selectedObject);
+                }
+                if (event.key.toLowerCase() === 'i' && global.selectedObject) {
+                    setKeyframe();
+                }
+            });
+
+            // Toolbar Buttons
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    const tool = btn.dataset.tool;
+                    if (tool === 'select') {
+                        global.transformControls.setMode('translate');
+                        global.transformControls.showX = false;
+                        global.transformControls.showY = false;
+                        global.transformControls.showZ = false;
+                    } else {
+                        global.transformControls.setMode(tool);
+                        global.transformControls.showX = true;
+                        global.transformControls.showY = true;
+                        global.transformControls.showZ = true;
+                    }
+                });
+            });
+            document.querySelector('[data-tool="select"]').click();
+
+            // Accordion Panels
+            document.querySelectorAll('.panel-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const body = header.nextElementSibling;
+                    const arrow = header.querySelector('span:last-child');
+                    body.classList.toggle('hidden');
+                    arrow.innerHTML = body.classList.contains('hidden') ? '&#9656;' : '&#9662;';
+                });
+            });
+            
+            // Transform Controls Listeners
+            global.transformControls.addEventListener('dragging-changed', (event) => {
+                global.orbitControls.enabled = !event.value;
+            });
+            global.transformControls.addEventListener('objectChange', () => {
+                if (global.selectedObject) updatePropertiesPanel();
+            });
+
+            // --- Menu Dropdowns ---
+            document.querySelectorAll('[data-dropdown-btn]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                        if (menu.id !== e.target.dataset.dropdownBtn) {
+                            menu.classList.add('hidden');
+                        }
+                    });
+                    document.getElementById(e.target.dataset.dropdownBtn).classList.toggle('hidden');
+                });
+            });
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.dropdown')) {
+                    document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+                }
+            });
+
+            // "Add" Menu Listeners
+            document.querySelectorAll('.add-object-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const type = e.target.dataset.type;
+                    addObject(type, new THREE.Vector3(0, 0.5, 0));
+                    e.target.closest('.dropdown-menu').classList.add('hidden');
+                });
+            });
+            
+            // --- File Menu Listeners ---
+            document.getElementById('file-save-btn').addEventListener('click', saveScene);
+            const fileOpenInput = document.getElementById('file-open-input');
+            document.getElementById('file-open-btn').addEventListener('click', () => {
+                fileOpenInput.click();
+            });
+            fileOpenInput.addEventListener('change', loadScene);
+
+            // --- Viewport Toggle Listener ---
+            document.getElementById('toggle-wireframe-btn').addEventListener('click', toggleWireframe);
+
+            // --- Camera Control Listeners ---
+            document.getElementById('cam-toggle-ortho').addEventListener('click', toggleCamera);
+            document.getElementById('cam-snap-reset').addEventListener('click', () => snapCameraView('reset'));
+            document.getElementById('cam-snap-front').addEventListener('click', () => snapCameraView('front'));
+            document.getElementById('cam-snap-top').addEventListener('click', () => snapCameraView('top'));
+            document.getElementById('cam-snap-side').addEventListener('click', () => snapCameraView('side'));
+
+
+            // --- Parenting UI Listeners ---
+            document.getElementById('parent-btn').addEventListener('click', () => {
+                global.waitingForParent = true;
+                document.getElementById('parent-wait-msg').classList.remove('hidden');
+            });
+            document.getElementById('unparent-btn').addEventListener('click', () => {
+                if (!global.selectedObject) return;
+                global.scene.attach(global.selectedObject);
+                updateAllUI();
+            });
+            
+            // --- Timeline Listeners ---
+            playBtn.addEventListener('click', togglePlay);
+            stopBtn.addEventListener('click', stopAnimation);
+            frameInput.addEventListener('change', (e) => syncFrame(parseInt(e.target.value)));
+            frameSlider.addEventListener('input', (e) => syncFrame(parseInt(e.target.value)));
+            setKeyframeBtn.addEventListener('click', setKeyframe);
+
+            // Initial UI state
+            updateAllUI();
+        }
+
+        // =================================================================
+        // 4. CORE LOGIC (Selection, Adding, Deleting, Parenting)
+        // =================================================================
+
+        function selectObject(obj) {
+            // Handle parenting state
+            if (global.waitingForParent) {
+                if (obj && obj !== global.selectedObject && obj.isMesh) {
+                    obj.attach(global.selectedObject); 
+                    global.waitingForParent = false;
+                    document.getElementById('parent-wait-msg').classList.add('hidden');
+                    updateAllUI();
+                }
+                return;
+            }
+            
+            if (global.selectedObject === obj) return;
+            
+            global.selectedObject = obj;
+            global.transformControls.attach(obj);
+            if(obj.isSpotLight) global.transformControls.attach(obj);
+            
+            updateAllUI();
+        }
+
+        function deselectObject() {
+            if (global.waitingForParent) {
+                global.waitingForParent = false;
+                document.getElementById('parent-wait-msg').classList.add('hidden');
+                return;
+            }
+            if (!global.selectedObject) return;
+            
+            global.selectedObject = null;
+            global.transformControls.detach();
+            updateAllUI();
+        }
+
+        function addObject(type, position) {
+            let obj;
+            // **** NEW: Expanded userData ****
+            const userData = { 
+                isSelectable: true, 
+                type: type, 
+                animationData: {},
+                textureURL: '',
+                normalMapURL: '',
+                roughnessMapURL: '',
+                metalnessMapURL: ''
+            };
+
+            switch(type) {
+                // --- MESHES ---
+                case 'Sphere':
+                    userData.radius = 0.5; userData.widthSegments = 32; userData.heightSegments = 16;
+                    obj = new THREE.Mesh(new THREE.SphereGeometry(userData.radius, userData.widthSegments, userData.heightSegments), createDefaultMaterial());
+                    obj.name = 'Sphere';
+                    break;
+                case 'Plane':
+                    userData.width = 5; userData.height = 5;
+                    obj = new THREE.Mesh(new THREE.PlaneGeometry(userData.width, userData.height), createDefaultMaterial());
+                    obj.name = 'Plane'; obj.rotation.x = -Math.PI / 2; position.y = 0;
+                    break;
+                case 'Cylinder':
+                    userData.radiusTop = 0.5; userData.radiusBottom = 0.5; userData.height = 1; userData.radialSegments = 32;
+                    obj = new THREE.Mesh(new THREE.CylinderGeometry(userData.radiusTop, userData.radiusBottom, userData.height, userData.radialSegments), createDefaultMaterial());
+                    obj.name = 'Cylinder'; position.y = userData.height / 2;
+                    break;
+                case 'Cone':
+                    userData.radius = 0.5; userData.height = 1; userData.radialSegments = 32;
+                    obj = new THREE.Mesh(new THREE.ConeGeometry(userData.radius, userData.height, userData.radialSegments), createDefaultMaterial());
+                    obj.name = 'Cone'; position.y = userData.height / 2;
+                    break;
+                case 'Torus':
+                    userData.radius = 1; userData.tube = 0.4; userData.radialSegments = 16; userData.tubularSegments = 100;
+                    obj = new THREE.Mesh(new THREE.TorusGeometry(userData.radius, userData.tube, userData.radialSegments, userData.tubularSegments), createDefaultMaterial());
+                    obj.name = 'Torus'; position.y = userData.tube + 0.1;
+                    break;
+                case 'Cube':
+                default:
+                    userData.width = 1; userData.height = 1; userData.depth = 1;
+                    obj = new THREE.Mesh(new THREE.BoxGeometry(userData.width, userData.height, userData.depth), createDefaultMaterial());
+                    obj.name = 'Cube';
+                    break;
+                
+                // --- LIGHTS ---
+                case 'PointLight':
+                    obj = new THREE.PointLight(0xffffff, 1, 10);
+                    obj.name = 'PointLight';
+                    const pointHelper = new THREE.PointLightHelper(obj, 0.2);
+                    pointHelper.userData = { isHelper: true, parentLight: obj };
+                    global.scene.add(pointHelper); global.helperObjects.push(pointHelper);
+                    break;
+                case 'SpotLight':
+                    obj = new THREE.SpotLight(0xffffff, 1, 10, Math.PI / 4, 0.5);
+                    obj.name = 'SpotLight';
+                    obj.target.position.set(position.x, 0, position.z);
+                    global.scene.add(obj.target);
+                    const spotHelper = new THREE.SpotLightHelper(obj);
+                    spotHelper.userData = { isHelper: true, parentLight: obj };
+                    global.scene.add(spotHelper); global.helperObjects.push(spotHelper);
+                    break;
+            }
+
+            obj.userData = userData;
+            obj.position.copy(position);
+            global.scene.add(obj);
+            
+            if(obj.isMesh) global.selectableObjects.push(obj);
+            
+            selectObject(obj);
+        }
+
+        function deleteObject(obj) {
+            if (!obj || !obj.userData.isSelectable) return;
+            if (global.selectedObject === obj) deselectObject();
+
+            if (global.animationActions.has(obj)) {
+                global.animationActions.get(obj).stop();
+                global.animationActions.delete(obj);
+            }
+
+            while (obj.children.length > 0) global.scene.attach(obj.children[0]);
+            
+            if(obj.isLight) {
+                if (obj.isSpotLight) global.scene.remove(obj.target);
+                const helper = global.helperObjects.find(h => h.userData.parentLight === obj);
+                if (helper) {
+                    helper.removeFromParent(); helper.dispose();
+                    global.helperObjects = global.helperObjects.filter(h => h !== helper);
+                }
+            }
+            if (obj.isMesh) {
+                global.selectableObjects = global.selectableObjects.filter(item => item !== obj);
+                obj.geometry.dispose(); obj.material.dispose();
+            }
+            
+            obj.removeFromParent();
+            updateAllUI();
+        }
+        
+        function createDefaultMaterial() {
+            return new THREE.MeshStandardMaterial({ 
+                color: Math.random() * 0xffffff,
+                roughness: 0.5, metalness: 0.0,
+                wireframe: global.isWireframe,
+            });
+        }
+        
+        // =================================================================
+        // 5. ANIMATION LOGIC
+        // =================================================================
+
+        function togglePlay() {
+            global.isPlaying = !global.isPlaying;
+            playIcon.classList.toggle('hidden', global.isPlaying);
+            pauseIcon.classList.toggle('hidden', !global.isPlaying);
+            
+            if (global.isPlaying) {
+                if (global.currentFrame === MAX_FRAMES) {
+                    syncFrame(0);
+                }
+                global.animationActions.forEach(action => {
+                    action.paused = false;
+                    action.play();
+                });
+            } else {
+                global.animationActions.forEach(action => action.paused = true);
+            }
+        }
+
+        function stopAnimation() {
+            global.isPlaying = false;
+            playIcon.classList.remove('hidden');
+            pauseIcon.classList.add('hidden');
+            
+            global.animationActions.forEach(action => {
+                action.paused = true;
+            });
+            syncFrame(0);
+        }
+
+        function syncFrame(frame) {
+            frame = Math.max(0, Math.min(MAX_FRAMES, frame));
+            global.currentFrame = frame;
+            const time = frame / FPS;
+            
+            if (!global.isPlaying) {
+                global.mixer.setTime(time);
+            }
+            
+            frameInput.value = frame;
+            frameSlider.value = frame;
+        }
+
+        function setKeyframe() {
+            if (!global.selectedObject) return;
+            
+            const obj = global.selectedObject;
+            if (!obj.userData.animationData) obj.userData.animationData = {};
+            
+            obj.userData.animationData[global.currentFrame] = {
+                pos: obj.position.toArray(),
+                rot: obj.quaternion.toArray(),
+                scl: obj.scale.toArray()
+            };
+            
+            buildAnimationClip(obj);
+            updateKeyframeTrackUI(obj);
+        }
+
+        function buildAnimationClip(obj) {
+            if (!obj.userData.animationData) return;
+            
+            const data = obj.userData.animationData;
+            const frames = Object.keys(data).map(Number).sort((a, b) => a - b);
+            
+            if (frames.length < 2) return;
+
+            const times = frames.map(f => f / FPS);
+            const posValues = [];
+            const rotValues = [];
+            const sclValues = [];
+            
+            frames.forEach(f => {
+                posValues.push(...data[f].pos);
+                rotValues.push(...data[f].rot);
+                sclValues.push(...data[f].scl);
+            });
+
+            const posTrack = new THREE.VectorKeyframeTrack('.position', times, posValues);
+            const rotTrack = new THREE.QuaternionKeyframeTrack('.quaternion', times, rotValues);
+            const sclTrack = new THREE.VectorKeyframeTrack('.scale', times, sclValues);
+            
+            const clip = new THREE.AnimationClip(`anim_${obj.uuid}`, -1, [posTrack, rotTrack, sclTrack]);
+            
+            let action = global.animationActions.get(obj);
+            if (action) {
+                action.stop();
+            }
+            
+            action = global.mixer.clipAction(clip, obj);
+            global.animationActions.set(obj, action);
+            
+            action.paused = !global.isPlaying;
+            action.play();
+            global.mixer.setTime(global.currentFrame / FPS);
+        }
+        
+
+        // =================================================================
+        // 6. GEOMETRY & CAMERA LOGIC
+        // =================================================================
+
+        function rebuildGeometry() {
+            if (!global.selectedObject || !global.selectedObject.userData || !global.selectedObject.isMesh) return;
+            const data = global.selectedObject.userData;
+            let newGeometry;
+            try {
+                switch(data.type) {
+                    case 'Sphere': newGeometry = new THREE.SphereGeometry(data.radius, data.widthSegments, data.heightSegments); break;
+                    case 'Cube': newGeometry = new THREE.BoxGeometry(data.width, data.height, data.depth); break;
+                    case 'Plane': newGeometry = new THREE.PlaneGeometry(data.width, data.height); break;
+                    case 'Cylinder': newGeometry = new THREE.CylinderGeometry(data.radiusTop, data.radiusBottom, data.height, data.radialSegments); break;
+                    case 'Cone': newGeometry = new THREE.ConeGeometry(data.radius, data.height, data.radialSegments); break;
+                    case 'Torus': newGeometry = new THREE.TorusGeometry(data.radius, data.tube, data.radialSegments, data.tubularSegments); break;
+                    default: return;
+                }
+                global.selectedObject.geometry.dispose();
+                global.selectedObject.geometry = newGeometry;
+                updateStats();
+            } catch (error) { console.error("Error rebuilding geometry:", error); }
+        }
+
+        function toggleWireframe() {
+            global.isWireframe = !global.isWireframe;
+            global.scene.traverse((obj) => {
+                if (obj.isMesh && obj.material) obj.material.wireframe = global.isWireframe;
+            });
+            document.getElementById('toggle-wireframe-btn').innerText = `Wireframe: ${global.isWireframe ? 'ON' : 'OFF'}`;
+        }
+        
+        function toggleCamera() {
+            global.isOrtho = !global.isOrtho;
+            const currentCam = global.isOrtho ? global.cameraOrtho : global.camera;
+            document.getElementById('cam-toggle-ortho').innerText = global.isOrtho ? 'Ortho' : 'Persp';
+            
+            currentCam.position.copy(global.isOrtho ? global.camera.position : global.cameraOrtho.position);
+            currentCam.rotation.copy(global.isOrtho ? global.camera.rotation : global.cameraOrtho.rotation);
+            currentCam.zoom = 1;
+            currentCam.updateProjectionMatrix();
+            
+            global.orbitControls.object = currentCam;
+            global.transformControls.camera = currentCam;
+        }
+
+        function snapCameraView(view) {
+            const cam = global.orbitControls.object;
+            global.orbitControls.target.set(0,0,0);
+            switch(view) {
+                case 'front': cam.position.set(0, 0, 10); break;
+                case 'top': cam.position.set(0, 10, 0); break;
+                case 'side': cam.position.set(10, 0, 0); break;
+                case 'reset': cam.position.set(5, 5, 5); break;
+            }
+            cam.lookAt(0,0,0);
+            if(cam.isOrthographicCamera) {
+                cam.zoom = 1;
+                cam.updateProjectionMatrix();
+            }
+        }
+
+        // =================================================================
+        // 7. UI UPDATE FUNCTIONS
+        // =================================================================
+
+        function updateAllUI() {
+            updateOutliner();
+            updatePropertiesPanel(); // Master function
+            updateStats();
+            updateKeyframeTrackUI(global.selectedObject);
+            
+            const parentBtn = document.getElementById('parent-btn');
+            const unparentBtn = document.getElementById('unparent-btn');
+            parentBtn.disabled = (global.selectedObject === null || !global.selectedObject.isMesh);
+            unparentBtn.disabled = (global.selectedObject === null || global.selectedObject.parent === global.scene);
+            setKeyframeBtn.disabled = (global.selectedObject === null);
+        }
+
+        function updateOutliner() {
+            const panelBody = document.getElementById('panel-body-outliner');
+            panelBody.innerHTML = ''; 
+
+            function buildTree(parentObject, parentElement, depth) {
+                parentObject.children.forEach(obj => {
+                    if (!obj.userData.isSelectable && !obj.isLight && !obj.isCamera) return;
+
+                    const item = document.createElement('div');
+                    item.className = 'outliner-item flex items-center space-x-2';
+                    item.style.paddingLeft = `${depth * 16 + 16}px`;
+                    if (obj === global.selectedObject) item.classList.add('selected');
+                    
+                    let icon = '';
+                    if (obj.userData.type === 'Cube') icon = '&#128230;';
+                    else if (obj.userData.type === 'Sphere') icon = '&#128280;';
+                    else if (obj.userData.type === 'Plane') icon = '&#128463;';
+                    else if (obj.userData.type === 'Cylinder' || obj.userData.type === 'Cone') icon = '&#9927;';
+                    else if (obj.userData.type === 'Torus') icon = '&#9903;';
+                    else if (obj.isCamera) icon = '&#128247;';
+                    else if (obj.isPointLight) icon = '&#128161;';
+                    else if (obj.isSpotLight) icon = '&#128229;';
+                    else icon = '&#65121;';
+                    
+                    item.innerHTML = `<span class="w-4">${icon}</span> <span>${obj.name}</span>`;
+                    
+                    item.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (obj.userData.isSelectable) selectObject(obj);
+                    });
+                    
+                    parentElement.appendChild(item);
+                    if (obj.children.length > 0) buildTree(obj, parentElement, depth + 1);
+                });
+            }
+            buildTree(global.scene, panelBody, 0);
+        }
+
+        function updatePropertiesPanel() {
+            propertiesPanel.innerHTML = '';
+            const obj = global.selectedObject;
+
+            if (!obj) {
+                propertiesPanel.innerHTML = '<span class="text-sm text-gray-500">No object selected.</span>';
+                return;
+            }
+            
+            propertiesPanel.insertAdjacentHTML('beforeend', createTransformPanel(obj));
+            if (obj.isMesh) {
+                propertiesPanel.insertAdjacentHTML('beforeend', createGeometryPanel(obj));
+                propertiesPanel.insertAdjacentHTML('beforeend', createMaterialPanel(obj));
+            } else if (obj.isLight) {
+                propertiesPanel.insertAdjacentHTML('beforeend', createLightPanel(obj));
+            }
+            addPropertiesListeners(obj);
+        }
+        
+        function createTransformPanel(obj) {
+             return `
+                <div class="text-sm space-y-2">
+                    <span class="font-semibold text-gray-300">Position (m)</span>
+                    <div class="grid grid-cols-4 gap-2 items-center">
+                        <span class="prop-label text-right">X</span><input type="number" step="0.1" class="prop-input" data-prop="position.x" value="${obj.position.x.toFixed(2)}">
+                        <span class="prop-label text-right">Y</span><input type="number" step="0.1" class="prop-input" data-prop="position.y" value="${obj.position.y.toFixed(2)}">
+                        <span class="prop-label text-right">Z</span><input type="number" step="0.1" class="prop-input" data-prop="position.z" value="${obj.position.z.toFixed(2)}">
+                    </div>
+                </div>
+                <div class="text-sm space-y-2">
+                    <span class="font-semibold text-gray-300">Rotation (deg)</span>
+                    <div class="grid grid-cols-4 gap-2 items-center">
+                        <span class="prop-label text-right">X</span><input type="number" step="1" class="prop-input" data-prop="rotation.x" data-is-degrees="true" value="${THREE.MathUtils.radToDeg(obj.rotation.x).toFixed(1)}">
+                        <span class="prop-label text-right">Y</span><input type="number" step="1" class="prop-input" data-prop="rotation.y" data-is-degrees="true" value="${THREE.MathUtils.radToDeg(obj.rotation.y).toFixed(1)}">
+                        <span class="prop-label text-right">Z</span><input type="number" step="1" class="prop-input" data-prop="rotation.z" data-is-degrees="true" value="${THREE.MathUtils.radToDeg(obj.rotation.z).toFixed(1)}">
+                    </div>
+                </div>
+                <div class="text-sm space-y-2">
+                    <span class="font-semibold text-gray-300">Scale</span>
+                    <div class="grid grid-cols-4 gap-2 items-center">
+                        <span class="prop-label text-right">X</span><input type="number" step="0.1" class="prop-input" data-prop="scale.x" value="${obj.scale.x.toFixed(2)}">
+                        <span class="prop-label text-right">Y</span><input type="number" step="0.1" class="prop-input" data-prop="scale.y" value="${obj.scale.y.toFixed(2)}">
+                        <span class="prop-label text-right">Z</span><input type="number" step="0.1" class="prop-input" data-prop="scale.z" value="${obj.scale.z.toFixed(2)}">
+                    </div>
+                </div>
+            `;
+        }
+        function createGeometryPanel(obj) {
+            const data = obj.userData;
+            if (!data.type) return '';
+            let html = `<div class="text-sm space-y-2"><span class="font-semibold text-gray-300">${data.type}</span><div class="grid grid-cols-2 gap-2 mt-2 items-center">`;
+            switch(data.type) {
+                case 'Sphere':
+                    html += `<label class="prop-label">Radius</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="radius" value="${data.radius}">
+                             <label class="prop-label">Width Segs</label><input type="number" min="3" step="1" class="prop-input geo-input" data-prop="widthSegments" value="${data.widthSegments}">
+                             <label class="prop-label">Height Segs</label><input type="number" min="2" step="1" class="prop-input geo-input" data-prop="heightSegments" value="${data.heightSegments}">`;
+                    break;
+                case 'Cube':
+                    html += `<label class="prop-label">Width</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="width" value="${data.width}">
+                             <label class="prop-label">Height</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="height" value="${data.height}">
+                             <label class="prop-label">Depth</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="depth" value="${data.depth}">`;
+                    break;
+                case 'Plane':
+                    html += `<label class="prop-label">Width</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="width" value="${data.width}">
+                             <label class="prop-label">Height</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="height" value="${data.height}">`;
+                    break;
+                case 'Cylinder':
+                    html += `<label class="prop-label">Radius Top</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="radiusTop" value="${data.radiusTop}">
+                             <label class="prop-label">Radius Btm</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="radiusBottom" value="${data.radiusBottom}">
+                             <label class="prop-label">Height</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="height" value="${data.height}">
+                             <label class="prop-label">Segments</label><input type="number" min="3" step="1" class="prop-input geo-input" data-prop="radialSegments" value="${data.radialSegments}">`;
+                    break;
+                case 'Cone':
+                    html += `<label class="prop-label">Radius</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="radius" value="${data.radius}">
+                             <label class="prop-label">Height</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="height" value="${data.height}">
+                             <label class="prop-label">Segments</label><input type="number" min="3" step="1" class="prop-input geo-input" data-prop="radialSegments" value="${data.radialSegments}">`;
+                    break;
+                case 'Torus':
+                    html += `<label class="prop-label">Radius</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="radius" value="${data.radius}">
+                             <label class="prop-label">Tube</label><input type="number" step="0.1" class="prop-input geo-input" data-prop="tube" value="${data.tube}">
+                             <label class="prop-label">Rad Segs</label><input type="number" min="3" step="1" class="prop-input geo-input" data-prop="radialSegments" value="${data.radialSegments}">
+                             <label class="prop-label">Tube Segs</label><input type="number" min="3" step="1" class="prop-input geo-input" data-prop="tubularSegments" value="${data.tubularSegments}">`;
+                    break;
+            }
+            return html + '</div></div>';
+        }
+        
+        // **** NEW: Updated Material Panel ****
+        function createMaterialPanel(obj) {
+            const mat = obj.material;
+            const texURL = obj.userData.textureURL || '';
+            const normalMapURL = obj.userData.normalMapURL || '';
+            const roughnessMapURL = obj.userData.roughnessMapURL || '';
+            const metalnessMapURL = obj.userData.metalnessMapURL || '';
+            
+            return `
+                <div class="text-sm space-y-2">
+                    <span class="font-semibold text-gray-300">Material (Standard)</span>
+                    <div class="p-2 bg-gray-800 rounded-md border border-gray-900 space-y-3">
+                        <div><label class="prop-label">Base Color</label><input type="color" class="w-full h-8 mt-1 rounded-md border-none prop-input" data-prop="material.color" value="#${mat.color.getHexString()}"></div>
+                        <div><label class="prop-label">Metalness</label><input type="range" min="0" max="1" step="0.01" class="prop-slider prop-input" data-prop="material.metalness" value="${mat.metalness}"></div>
+                        <div><label class="prop-label">Roughness</label><input type="range" min="0" max="1" step="0.01" class="prop-slider prop-input" data-prop="material.roughness" value="${mat.roughness}"></div>
+                        
+                        <!-- Base Color Map -->
+                        <div>
+                            <label class="prop-label">Color Map (URL)</label>
+                            <div class="flex space-x-1">
+                                <input type="text" class="prop-input-text" id="texture-url-input" value="${texURL}"><button id="texture-apply-btn" data-map-type="map" class="btn-secondary">Apply</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Normal Map -->
+                        <div>
+                            <label class="prop-label">Normal Map (URL)</label>
+                            <div class="flex space-x-1">
+                                <input type="text" class="prop-input-text" id="texture-url-normal-input" value="${normalMapURL}"><button id="texture-apply-normal-btn" data-map-type="normalMap" class="btn-secondary">Apply</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Roughness Map -->
+                        <div>
+                            <label class="prop-label">Roughness Map (URL)</label>
+                            <div class="flex space-x-1">
+                                <input type="text" class="prop-input-text" id="texture-url-roughness-input" value="${roughnessMapURL}"><button id="texture-apply-roughness-btn" data-map-type="roughnessMap" class="btn-secondary">Apply</button>
+                            </div>
+                        </div>
+
+                        <!-- Metalness Map -->
+                        <div>
+                            <label class="prop-label">Metalness Map (URL)</label>
+                            <div class="flex space-x-1">
+                                <input type="text" class="prop-input-text" id="texture-url-metalness-input" value="${metalnessMapURL}"><button id="texture-apply-metalness-btn" data-map-type="metalnessMap" class="btn-secondary">Apply</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>`;
+        }
+        function createLightPanel(obj) {
+            let html = `<div class="text-sm space-y-2"><span class="font-semibold text-gray-300">${obj.userData.type}</span><div class="p-2 bg-gray-800 rounded-md border border-gray-900 space-y-3">`;
+            html += `<div><label class="prop-label">Color</label><input type="color" class="w-full h-8 mt-1 rounded-md border-none prop-input" data-prop="color" value="#${obj.color.getHexString()}"></div>
+                     <div><label class="prop-label">Intensity</label><input type="range" min="0" max="10" step="0.1" class="prop-slider prop-input" data-prop="intensity" value="${obj.intensity}"></div>
+                     <div><label class="prop-label">Distance</label><input type="number" min="0" step="1" class="prop-input" data-prop="distance" value="${obj.distance}"></div>`;
+            if (obj.isSpotLight) {
+                html += `<div><label class="prop-label">Angle (deg)</label><input type="range" min="0" max="90" step="1" class="prop-slider prop-input" data-prop="angle" data-is-degrees="true" value="${THREE.MathUtils.radToDeg(obj.angle).toFixed(1)}"></div>
+                         <div><label class="prop-label">Penumbra</label><input type="range" min="0" max="1" step="0.01" class="prop-slider prop-input" data-prop="penumbra" value="${obj.penumbra}"></div>`;
+            }
+            return html + '</div></div>';
+        }
+
+        /**
+         * Adds event listeners to the dynamically created properties panel
+         */
+        function addPropertiesListeners(obj) {
+            // Transform and Light/Material properties
+            propertiesPanel.querySelectorAll('.prop-input').forEach(input => {
+                input.addEventListener('input', (e) => {
+                    const propPath = e.target.dataset.prop;
+                    let value = (e.target.type === 'color') ? e.target.value : parseFloat(e.target.value);
+                    if (e.target.dataset.isDegrees) value = THREE.MathUtils.degToRad(value);
+                    
+                    let current = obj;
+                    const parts = propPath.split('.');
+                    for (let i = 0; i < parts.length - 1; i++) current = current[parts[i]];
+                    
+                    if (e.target.type === 'color') current[parts[parts.length - 1]].set(value);
+                    else current[parts[parts.length - 1]] = value;
+                    
+                    if(obj.isSpotLight) obj.target.updateMatrixWorld();
+                });
+            });
+
+            // Geometry properties
+            propertiesPanel.querySelectorAll('.geo-input').forEach(input => {
+                input.addEventListener('input', (e) => {
+                    const prop = e.target.dataset.prop;
+                    const value = parseFloat(e.target.value);
+                    if (!isNaN(value) && value > 0) {
+                        obj.userData[prop] = value;
+                        rebuildGeometry();
+                    }
+                });
+            });
+            
+            // **** NEW: Generic Texture Button Setup ****
+            const setupTextureButton = (buttonId, inputId, mapType, userDataKey) => {
+                const texBtn = document.getElementById(buttonId);
+                if (texBtn) {
+                    texBtn.addEventListener('click', () => {
+                        const url = document.getElementById(inputId).value;
+                        if (!url) {
+                            obj.material[mapType] = null;
+                            obj.material.needsUpdate = true;
+                            obj.userData[userDataKey] = '';
+                            return;
+                        }
+                        global.textureLoader.load(
+                            url,
+                            (texture) => {
+                                obj.material[mapType] = texture;
+                                obj.material.needsUpdate = true;
+                                obj.userData[userDataKey] = url;
+                            },
+                            undefined,
+                            (err) => { console.error(`Error loading ${mapType}:`, err); }
+                        );
+                    });
+                }
+            };
+
+            // Setup all texture buttons
+            setupTextureButton('texture-apply-btn', 'texture-url-input', 'map', 'textureURL');
+            setupTextureButton('texture-apply-normal-btn', 'texture-url-normal-input', 'normalMap', 'normalMapURL');
+            setupTextureButton('texture-apply-roughness-btn', 'texture-url-roughness-input', 'roughnessMap', 'roughnessMapURL');
+            setupTextureButton('texture-apply-metalness-btn', 'texture-url-metalness-input', 'metalnessMap', 'metalnessMapURL');
+        }
+        
+        function updateStats() {
+            let totalVerts = 0, totalTris = 0, totalObjects = 0;
+            global.scene.traverse((obj) => {
+                if (obj.isMesh && obj.userData.isSelectable) {
+                    totalObjects++;
+                    totalVerts += obj.geometry.attributes.position.count;
+                    totalTris += obj.geometry.index ? obj.geometry.index.count / 3 : obj.geometry.attributes.position.count / 3;
+                }
+            });
+            document.getElementById('status-stats').innerHTML = `
+                <span>Verts: ${totalVerts.toLocaleString()}</span>
+                <span>Tris: ${Math.round(totalTris).toLocaleString()}</span>
+                <span>Objects: ${totalObjects}</span>`;
+        }
+        
+        function updateKeyframeTrackUI(obj) {
+            keyframeTrackUI.innerHTML = '';
+            if (!obj || !obj.userData.animationData) return;
+            
+            const frames = Object.keys(obj.userData.animationData);
+            frames.forEach(frame => {
+                const percent = (parseInt(frame) / MAX_FRAMES) * 100;
+                const marker = document.createElement('div');
+                marker.className = 'absolute w-1.5 h-full bg-red-500 transform -translate-x-1/2';
+                marker.style.left = `${percent}%`;
+                keyframeTrackUI.appendChild(marker);
+            });
+        }
+
+        // =================================================================
+        // 8. FILE SAVE & LOAD
+        // =================================================================
+
+        function saveScene() {
+            try {
+                const sceneJson = JSON.stringify(global.scene.toJSON());
+                const blob = new Blob([sceneJson], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'cynious-scene.json';
+                a.click(); URL.revokeObjectURL(url); a.remove();
+                console.log("Scene saved.");
+            } catch (error) { console.error("Error saving scene:", error); }
+        }
+
+        function loadScene(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const sceneData = JSON.parse(e.target.result);
+                    
+                    deselectObject();
+                    global.selectableObjects = [];
+                    global.helperObjects = [];
+                    global.mixer.stopAllAction();
+                    global.animationActions.clear();
+                    
+                    while (global.scene.children.length > 0) {
+                        const obj = global.scene.children[0];
+                        if (obj.isLight) {
+                             if (obj.isSpotLight) global.scene.remove(obj.target);
+                             const helper = global.helperObjects.find(h => h.userData.parentLight === obj);
+                             if (helper) { helper.removeFromParent(); helper.dispose(); }
+                        }
+                        if (obj.isMesh) { obj.geometry.dispose(); obj.material.dispose(); }
+                        global.scene.remove(obj);
+                    }
+
+                    const loader = new THREE.ObjectLoader();
+                    global.scene = loader.parse(sceneData);
+                    global.mixer = new THREE.AnimationMixer(global.scene);
+
+                    // **** NEW: Updated Texture Loading ****
+                    const texturesToLoad = [];
+                    global.scene.traverse(obj => {
+                        if (obj.isMesh && obj.material) {
+                            obj.material.wireframe = global.isWireframe;
+                            global.selectableObjects.push(obj);
+                            
+                            // Check for all texture maps
+                            if (obj.userData.textureURL)       texturesToLoad.push({ obj, mapType: 'map', url: obj.userData.textureURL });
+                            if (obj.userData.normalMapURL)    texturesToLoad.push({ obj, mapType: 'normalMap', url: obj.userData.normalMapURL });
+                            if (obj.userData.roughnessMapURL) texturesToLoad.push({ obj, mapType: 'roughnessMap', url: obj.userData.roughnessMapURL });
+                            if (obj.userData.metalnessMapURL) texturesToLoad.push({ obj, mapType: 'metalnessMap', url: obj.userData.metalnessMapURL });
+
+                            if (obj.userData.animationData && Object.keys(obj.userData.animationData).length > 0) {
+                                buildAnimationClip(obj);
+                            }
+                        }
+                        if (obj.isPointLight) {
+                            const helper = new THREE.PointLightHelper(obj, 0.2);
+                            helper.userData = { isHelper: true, parentLight: obj };
+                            global.scene.add(helper); global.helperObjects.push(helper);
+                        }
+                        if (obj.isSpotLight) {
+                            const helper = new THREE.SpotLightHelper(obj);
+                            helper.userData = { isHelper: true, parentLight: obj };
+                            global.scene.add(helper); global.helperObjects.push(helper);
+                        }
+                    });
+                    
+                    // Asynchronously load all textures
+                    texturesToLoad.forEach(item => {
+                         global.textureLoader.load(item.url, (texture) => {
+                            item.obj.material[item.mapType] = texture;
+                            item.obj.material.needsUpdate = true;
+                         });
+                    });
+
+                    // --- Re-link critical components ---
+                    global.camera = global.scene.getObjectByName('DefaultCamera');
+                    global.orbitControls.object = global.camera;
+                    global.transformControls.camera = global.camera;
+                    global.scene.add(global.transformControls);
+                    global.scene.add(global.camera); 
+                    
+                    const gridHelper = new THREE.GridHelper(10, 10, 0x555555, 0x333333);
+                    gridHelper.name = "GridHelper";
+                    global.scene.add(gridHelper);
+
+                    stopAnimation();
+                    updateAllUI();
+                    console.log("Scene loaded.");
+                    
+                } catch (error) { console.error("Error loading scene:", error); }
+                event.target.value = null;
+            };
+            reader.readAsText(file);
+        }
+
+        // =================================================================
+        // 9. EVENT HANDLERS & ANIMATION LOOP
+        // =================================================================
+
+        function onWindowResize() {
+            const width = viewportContainer.clientWidth, height = viewportContainer.clientHeight, aspect = width / height;
+            global.camera.aspect = aspect; global.camera.updateProjectionMatrix();
+            const frustumSize = 10;
+            global.cameraOrtho.left = frustumSize * aspect / -2; global.cameraOrtho.right = frustumSize * aspect / 2;
+            global.cameraOrtho.top = frustumSize / 2; global.cameraOrtho.bottom = frustumSize / -2;
+            global.cameraOrtho.updateProjectionMatrix();
+            global.renderer.setSize(width, height);
+        }
+
+        function onPointerDown(event) {
+            if (global.transformControls.dragging) return;
+            const bounds = viewportContainer.getBoundingClientRect();
+            global.mouse.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+            global.mouse.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+            const cam = global.isOrtho ? global.cameraOrtho : global.camera;
+            global.raycaster.setFromCamera(global.mouse, cam);
+            
+            let intersects = global.raycaster.intersectObjects(global.selectableObjects, false);
+            let selected = null;
+            if (intersects.length > 0) selected = intersects[0].object;
+            else {
+                intersects = global.raycaster.intersectObjects(global.helperObjects, false);
+                if (intersects.length > 0) selected = intersects[0].object.userData.parentLight;
+            }
+            if (selected) selectObject(selected);
+            else deselectObject();
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = global.clock.getDelta();
+            const cam = global.isOrtho ? global.cameraOrtho : global.camera;
+
+            global.orbitControls.update();
+            global.helperObjects.forEach(h => h.update()); 
+            
+            if (global.mixer) {
+                global.mixer.update(delta);
+                if (global.isPlaying) {
+                    const currentTime = global.mixer.time;
+                    const currentFrame = Math.round(currentTime * FPS);
+                    if (currentFrame > MAX_FRAMES) {
+                        stopAnimation();
+                    } else {
+                        global.currentFrame = currentFrame;
+                        frameInput.value = currentFrame;
+                        frameSlider.value = currentFrame;
+                    }
+                }
+            }
+            
+            global.renderer.clear();
+            global.renderer.render(global.scene, cam);
+            global.cameraHelpers.children.length = 0;
+            global.scene.traverse(obj => {
+                if (obj.isCameraHelper) global.cameraHelpers.add(obj);
+            });
+            global.renderer.render(global.cameraHelpers, cam);
+        }
+
+        // GO!
+        init();
+    </script>
+</body>
+</html>
